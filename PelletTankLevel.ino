@@ -1,9 +1,11 @@
 #include <Ethernet.h>
 #include <EthernetUdp.h>
 
-
+#define ENABLE_PIN 2
+#define READ_PIN 3
 #define SYNC_CLOCK_FAILED_TIMEOUT 5 //should be ~300s
-#define MIDNIGHT_INTERVAL 20//86400L
+#define MIDNIGHT_INTERVAL 10//86400L
+#define NUM_OF_SAMPLES 21
 //#define SYNC_CLOCK_EXPIRE_TIME 3000 
 //#define NEXT_MEASUREMENT_TIME 1000 
 
@@ -27,6 +29,37 @@ unsigned long syncClockTimeSec = 0;
 unsigned long syncClockFailedTimeSec = 0;
 unsigned long midnightTomorrow = 0;
 unsigned long epoch = 0;
+
+uint16_t mArray[NUM_OF_SAMPLES];
+
+struct SensorData {
+  uint32_t timestamp;
+  uint16_t measurement;
+};
+
+void bubbleSort(int a[], int size){
+  for(int i=0;i<(size-1);i++){
+    for(int j=0;j<(size-(i+1));j++){
+      if(a[j]>a[j+1]){
+        int t = a[j];
+        a[j] = a[j+1];
+        a[j+1] = t;
+      }
+    }
+  }
+}
+
+unsigned int getMeasurement(){
+  unsigned int readByte = 0;
+  digitalWrite(ENABLE_PIN, HIGH);
+  for (int i=0; i<16; i++) 
+    if(pulseIn(READ_PIN, LOW, 1000) <= 20) 
+      readByte = bitSet(readByte, i);
+  digitalWrite(ENABLE_PIN, LOW);
+  delay(100);
+  return readByte;
+}
+
 
 unsigned long getTimestampFromTimeServer(IPAddress timeServerIp){
 
@@ -59,6 +92,8 @@ void setup() {
   syncClockFailedTimeSec = 0;
   measurementTimeSec = 0;
   midnightTomorrow = MIDNIGHT_INTERVAL;
+  pinMode(ENABLE_PIN, OUTPUT);
+  pinMode(READ_PIN, INPUT);
   Serial.begin(9600);
   Ethernet.begin(mac, ip);
   Udp.begin(localPort);
@@ -78,6 +113,18 @@ void loop() {
   //time for new measurement
   if(epoch + measurementTimeSec >= midnightTomorrow){
     Serial.println("Measuring level...");
+
+    for(int i=0; i<NUM_OF_SAMPLES; i++)
+      mArray[i] = getMeasurement();
+
+    bubbleSort(mArray, NUM_OF_SAMPLES);
+
+    SensorData sensorData;
+    sensorData.measurement = mArray[NUM_OF_SAMPLES/2];
+    sensorData.timestamp = epoch + measurementTimeSec; //what if epoch == 0?
+    Serial.print("Level: ");
+    Serial.println(sensorData.measurement);
+
     epoch = 0;
     Serial.println("Time sync expired...");
     measurementTimeSec = 0;
