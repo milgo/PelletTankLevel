@@ -7,7 +7,7 @@
 #define ENABLE_PIN 2
 #define READ_PIN 3
 #define SYNC_CLOCK_FAILED_TIMEOUT 30 //should be ~300s
-#define MIDNIGHT_INTERVAL 30//86400L
+#define MIDNIGHT_INTERVAL 5//86400L
 #define NUM_OF_SAMPLES 11
 #define BYTES_TO_READ 240
 #define SD_CHIP_SELECT 4
@@ -110,15 +110,27 @@ void provideWepPage(){
           client.println("Connection: close");
           client.println();
           // send web page
-          client.println("<!DOCTYPE html>");
-          client.println("<html>");
-          client.println("<head>");
-          client.println("<title>Arduino Web Page</title>");
-          client.println("</head>");
-          client.println("<body>");
-          client.println("<h1>Hello from Arduino!</h1>");
-          client.println("<p>A web page from the Arduino server</p>");
-
+          client.println(F("<svg viewBox='0 0 1200 700' class='chart' style='background-color: #ffffff;'>"));
+          client.println(F("<title id='title'>Pallet tank level</title>"));
+          client.println(F("<g class='grid x-grid' id='xGrid'>"));
+          client.println(F("<line x1='90' x2='90' y1='0' y2='600' stroke='black' stroke-width='1' stroke-linecap='butt'/></g>"));
+          client.println(F("<g class='grid y-grid' id='yGrid'>"));
+          client.println(F("<line x1='90' x2='900' y1='600' y2='600' stroke='black' stroke-width='1' stroke-linecap='butt'/></g>"));
+          client.println(F("<g class='labels x-labels'>"));
+          /*client.println(F("<text x='100' y='400' text-anchor='begin'>2008</text>"));
+          client.println(F("<text x='246' y='400' text-anchor='begin'>2009</text>"));
+          client.println(F("<text x='392' y='400' text-anchor='begin'>2010</text>"));
+          client.println(F("<text x='538' y='400' text-anchor='begin'>2011</text>"));
+          client.println(F("<text x='684' y='400' text-anchor='begin'>2012</text>"));
+          client.println(F("<text x='400' y='440' class='label-title' text-anchor='middle'>Time</text></g>"));*/
+          client.println(F("<g class='labels y-labels'>"));
+          client.println(F("<text x='80' y='10' text-anchor='end'>100%</text>"));
+          client.println(F("<text x='80' y='210' text-anchor='end'>50%</text>"));
+          client.println(F("<text x='80' y='410' text-anchor='end'>25%</text>"));
+          client.println(F("<text x='80' y='610' text-anchor='end'>0%</text>"));
+          client.println(F("<text x='50' y='310' class='label-title' text-anchor='end'>Level</text></g>"));
+          client.println(F("<polyline fill='none' stroke='#0074d9' stroke-width='1' points='"));
+          
           File fileRead = SD.open(DATALOG_FILENAME, FILE_READ);
           if (fileRead) {
             uint32_t fileSize = fileRead.size();
@@ -131,8 +143,11 @@ void provideWepPage(){
                 SensorData readData;
                 for(int i=0; i<40; i++){
                   if (fileRead.read((uint8_t *)&readData, sizeof(readData)) == sizeof(readData)) {
-	                  client.println(String(readData.timestamp) + ": " + String(readData.measurement));
-                    client.println("</br>");
+	                  //client.println(String(readData.timestamp) + ": " + String(readData.measurement));
+                    uint16_t level = readData.measurement;
+                    if(level > 1200) level = 1200;
+                    client.println(String(i*20+100) + "," + String(level/2));
+                    //client.println("</br>");
                   }
                 }
               }
@@ -140,8 +155,7 @@ void provideWepPage(){
             fileRead.close();
           }
 
-          client.println("</body>");
-          client.println("</html>");
+          client.println(F("'/></svg></body></html>"));
 
           break;
         }
