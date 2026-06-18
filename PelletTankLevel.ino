@@ -1,11 +1,15 @@
 #include <Ethernet.h>
 #include <EthernetUdp.h>
+#include <SD.h>
+#include <SPI.h>
 
 #define ENABLE_PIN 2
 #define READ_PIN 3
 #define SYNC_CLOCK_FAILED_TIMEOUT 5 //should be ~300s
 #define MIDNIGHT_INTERVAL 10//86400L
-#define NUM_OF_SAMPLES 21
+#define NUM_OF_SAMPLES 11
+#define BYTES_TO_READ 240
+#define SD_CHIP_SELECT 4
 //#define SYNC_CLOCK_EXPIRE_TIME 3000 
 //#define NEXT_MEASUREMENT_TIME 1000 
 
@@ -56,7 +60,7 @@ unsigned int getMeasurement(){
     if(pulseIn(READ_PIN, LOW, 1000) <= 20) 
       readByte = bitSet(readByte, i);
   digitalWrite(ENABLE_PIN, LOW);
-  delay(100);
+  delay(200);
   return readByte;
 }
 
@@ -97,6 +101,30 @@ void setup() {
   Serial.begin(9600);
   Ethernet.begin(mac, ip);
   Udp.begin(localPort);
+
+  if (!SD.begin(4)) {
+    Serial.println("SD Error");
+    while (1);
+  }
+
+  //SD test - read 10 last measurements
+  File fileRead = SD.open("data.log", FILE_READ);
+  if (fileRead) {
+    uint32_t fileSize = fileRead.size();
+    if (fileSize >= BYTES_TO_READ) {
+      uint32_t targetPosition = fileSize - BYTES_TO_READ;
+
+      if (fileRead.seek(targetPosition)) {
+        SensorData readData;
+        for(int i=0; i<40; i++){
+          if (fileRead.read((uint8_t *)&readData, sizeof(readData)) == sizeof(readData)) {
+            Serial.println(String(readData.timestamp) + ": " + String(readData.measurement));
+          }
+        }
+      }
+    }
+    fileRead.close();
+  }
 }
 
 void loop() {
@@ -118,12 +146,24 @@ void loop() {
       mArray[i] = getMeasurement();
 
     bubbleSort(mArray, NUM_OF_SAMPLES);
+    
+    for(int i=0; i<NUM_OF_SAMPLES; i++){
+      Serial.print(mArray[i]);
+      Serial.print(",");
+    }
+    Serial.println("");
 
     SensorData sensorData;
     sensorData.measurement = mArray[NUM_OF_SAMPLES/2];
     sensorData.timestamp = epoch + measurementTimeSec; //what if epoch == 0?
     Serial.print("Level: ");
     Serial.println(sensorData.measurement);
+
+    File dataFile = SD.open("data.log", FILE_WRITE);
+    if (dataFile) {
+      dataFile.write((const uint8_t *)&sensorData, sizeof(sensorData));
+      dataFile.close();     
+    }
 
     epoch = 0;
     Serial.println("Time sync expired...");
