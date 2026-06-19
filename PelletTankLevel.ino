@@ -9,8 +9,9 @@
 #define READ_PIN 3
 #define SYNC_CLOCK_FAILED_TIMEOUT 30 //should be ~300s
 #define MIDNIGHT_INTERVAL 5//86400L
-#define NUM_OF_SAMPLES 11
-#define BYTES_TO_READ 240
+#define MEDIAN_BUF_SIZE 11
+#define SAMPLES_TO_READ 30
+//#define BYTES_TO_READ 240
 #define SD_CHIP_SELECT 4
 //#define SYNC_CLOCK_EXPIRE_TIME 3000 
 //#define NEXT_MEASUREMENT_TIME 1000 
@@ -37,12 +38,13 @@ unsigned long syncClockFailedTimeSec = 0;
 unsigned long midnightTomorrow = 0;
 unsigned long epoch = 0;
 
-uint16_t mArray[NUM_OF_SAMPLES];
-
 struct SensorData {
   uint32_t timestamp;
   uint16_t measurement;
 };
+
+uint16_t bytesToRead = 0;
+uint16_t mArray[MEDIAN_BUF_SIZE];
 
 void bubbleSort(int a[], int size){
   for(int i=0;i<(size-1);i++){
@@ -133,13 +135,13 @@ void provideWepPage(){
           if (fileRead) {
             uint32_t fileSize = fileRead.size();
             // Safety check: ensure the file has enough bytes
-            if (fileSize >= BYTES_TO_READ) {
+            if (fileSize >= bytesToRead) {
               // Calculate the starting position (End of file minus X bytes)
-              uint32_t targetPosition = fileSize - BYTES_TO_READ;
+              uint32_t targetPosition = fileSize - bytesToRead;
               // Move the internal file pointer to the target position
               if (fileRead.seek(targetPosition)) {
                 SensorData readData;
-                for(int i=0; i<40; i++){
+                for(int i=0; i<SAMPLES_TO_READ; i++){
                   if (fileRead.read((uint8_t *)&readData, sizeof(readData)) == sizeof(readData)) {
 	                  //client.println(String(readData.timestamp) + ": " + String(readData.measurement));
                     uint32_t timestamp = readData.timestamp;
@@ -147,7 +149,7 @@ void provideWepPage(){
 
                     if(level > 1200) level = 1200;
 
-                    String sx = String(i*20+100);
+                    String sx = String(i*800/SAMPLES_TO_READ+100);
                     client.print(F("<line x1='"));
                     client.print(sx);
                     client.print(F("' x2='"));
@@ -161,11 +163,12 @@ void provideWepPage(){
                       time_t epochTime = timestamp - 946684800UL;
                       struct tm *time_info = localtime(&epochTime );
                       char buffer[20];
+                      int dx = 800/SAMPLES_TO_READ;
                       strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M", time_info);
                       client.print(F("<text x='"));
-                      client.print(String(i*20+100));
+                      client.print(String(i*dx+100));
                       client.print(F("' y='620' transform='rotate(90, "));
-                      client.print(String(i*20+100));
+                      client.print(String(i*dx+100));
                       client.print(F(", 620)' text-anchor='begin'>"));
                       client.print(buffer);
                       client.println(F("</text>"));
@@ -197,18 +200,18 @@ void provideWepPage(){
           if (fileRead) {
             uint32_t fileSize = fileRead.size();
             // Safety check: ensure the file has enough bytes
-            if (fileSize >= BYTES_TO_READ) {
+            if (fileSize >= bytesToRead) {
               // Calculate the starting position (End of file minus X bytes)
-              uint32_t targetPosition = fileSize - BYTES_TO_READ;
+              uint32_t targetPosition = fileSize - bytesToRead;
               // Move the internal file pointer to the target position
               if (fileRead.seek(targetPosition)) {
                 SensorData readData;
-                for(int i=0; i<40; i++){
+                for(int i=0; i<SAMPLES_TO_READ; i++){
                   if (fileRead.read((uint8_t *)&readData, sizeof(readData)) == sizeof(readData)) {
 	                  //client.println(String(readData.timestamp) + ": " + String(readData.measurement));
                     uint16_t level = readData.measurement;
                     if(level > 1200) level = 1200;
-                    client.println(String(i*20+100) + "," + String(level/2));
+                    client.println(String(i*800/SAMPLES_TO_READ+100) + "," + String(level/2));
                     //client.println("</br>");
                   }
                 }
@@ -244,6 +247,8 @@ void setup() {
   syncClockFailedTimeSec = 0;
   measurementTimeSec = 0;
   midnightTomorrow = MIDNIGHT_INTERVAL;
+  SensorData sensorData;
+  bytesToRead = SAMPLES_TO_READ * sizeof(sensorData);
   pinMode(ENABLE_PIN, OUTPUT);
   pinMode(READ_PIN, INPUT);
   Serial.begin(9600);
@@ -254,25 +259,6 @@ void setup() {
     Serial.println(F("SD Error"));
     while (1);
   }
-
-  //SD test - read 10 last measurements
-  /*File fileRead = SD.open("data.log", FILE_READ);
-  if (fileRead) {
-    uint32_t fileSize = fileRead.size();
-    if (fileSize >= BYTES_TO_READ) {
-      uint32_t targetPosition = fileSize - BYTES_TO_READ;
-
-      if (fileRead.seek(targetPosition)) {
-        SensorData readData;
-        for(int i=0; i<40; i++){
-          if (fileRead.read((uint8_t *)&readData, sizeof(readData)) == sizeof(readData)) {
-            Serial.println(String(readData.timestamp) + ": " + String(readData.measurement));
-          }
-        }
-      }
-    }
-    fileRead.close();
-  }*/
 }
 
 void loop() {
@@ -292,19 +278,19 @@ void loop() {
   if(epoch + measurementTimeSec >= midnightTomorrow){
     Serial.println(F("Measuring level..."));
 
-    for(int i=0; i<NUM_OF_SAMPLES; i++)
+    for(int i=0; i<MEDIAN_BUF_SIZE; i++)
       mArray[i] = getMeasurement();
 
-    bubbleSort(mArray, NUM_OF_SAMPLES);
+    bubbleSort(mArray, MEDIAN_BUF_SIZE);
     
-    for(int i=0; i<NUM_OF_SAMPLES; i++){
+    for(int i=0; i<MEDIAN_BUF_SIZE; i++){
       Serial.print(mArray[i]);
       Serial.print(",");
     }
     Serial.println("");
 
     SensorData sensorData;
-    sensorData.measurement = mArray[NUM_OF_SAMPLES/2];
+    sensorData.measurement = mArray[MEDIAN_BUF_SIZE/2];
     sensorData.timestamp = epoch + measurementTimeSec; //what if epoch == 0?
     Serial.print(F("Level: "));
     Serial.println(sensorData.measurement);
